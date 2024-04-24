@@ -54,9 +54,9 @@ class ComfyApiWrapper:
         if client_id:
             p["client_id"] = client_id
         data = json.dumps(p).encode("utf-8")
-        logger.info(f"Posting prompt to {self.url}/prompt")
+        logger.debug(f"Posting prompt to {self.url}/prompt")
         resp = requests.post(urljoin(self.url, "/prompt"), data=data, auth=self.auth)
-        logger.info(f"{resp.status_code}: {resp.reason}")
+        logger.debug(f"{resp.status_code}: {resp.reason}")
         if resp.status_code == 200:
             return resp.json()
         else:
@@ -70,16 +70,16 @@ class ComfyApiWrapper:
             prompt (dict): The prompt to be executed.
 
         Returns:
-            str: The prompt ID.
+            str: The prompt results.
 
         Raises:
             Exception: If an execution error occurs.
         """
         client_id = str(uuid.uuid4())
         resp = self.queue_prompt(prompt, client_id)
-        print(resp)
+        
         prompt_id = resp["prompt_id"]
-        logger.info(f"Connecting to {self.ws_url.format(client_id).split('@')[-1]}")
+        logger.debug(f"Connecting to {self.ws_url.format(client_id).split('@')[-1]}")
         async with websockets.connect(uri=self.ws_url.format(client_id)) as websocket:
             while True:
                 # out = ws.recv()
@@ -102,13 +102,13 @@ class ComfyApiWrapper:
                         if data["node"] is None and data["prompt_id"] == prompt_id:
                             return prompt_id
 
-    def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_title: str) -> dict:
+    def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str]) -> dict:
         """
         Queues a prompt with a ComfyWorkflowWrapper object and waits for the images to be generated.
 
         Args:
             prompt (ComfyWorkflowWrapper): The ComfyWorkflowWrapper object representing the prompt.
-            output_node_title (str): The title of the output node.
+            output_node_id (str): The title of the output node.
 
         Returns:
             dict: A dictionary mapping image filenames to their content.
@@ -116,18 +116,17 @@ class ComfyApiWrapper:
         Raises:
             Exception: If the request fails with a non-200 status code.
         """
-
         loop = asyncio.get_event_loop() 
         prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt))
-        history = self.get_history(prompt_id)
-        image_node_id = prompt.get_node_id(output_node_title)
-        images = history[prompt_id]["outputs"][image_node_id]["images"]
-        return {
-            image["filename"]: self.get_image(
-                image["filename"], image["subfolder"], image["type"]
-            )
-            for image in images
-        }
+        prompt_result = self.get_history(prompt_id)[prompt_id]
+        
+        outputs = prompt_result["outputs"]
+        keys = list(outputs.keys())
+        for node_id in keys:
+            if node_id not in output_node_ids:
+                del outputs[node_id]                    
+               
+        return prompt_result["outputs"]
 
     def get_history(self, prompt_id: str) -> dict:
         """
@@ -143,7 +142,7 @@ class ComfyApiWrapper:
             Exception: If the request fails with a non-200 status code.
         """
         url = urljoin(self.url, f"/history/{prompt_id}")
-        logger.info(f"Getting history from {url}")
+        logger.debug(f"Getting history from {url}")
         resp = requests.get(url, auth=self.auth)
         if resp.status_code == 200:
             return resp.json()
