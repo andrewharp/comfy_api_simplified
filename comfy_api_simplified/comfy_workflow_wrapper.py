@@ -1,26 +1,30 @@
 import json
 import logging
-from typing import Any, List
+from typing import Any, List, Union
 
 logger = logging.getLogger(__name__)
 
 class ComfyWorkflowWrapper(dict):
-    def __init__(self, workflow_data: str):
+    def __init__(self, workflow_data: Union[str, dict]):
         """
         Initialize the ComfyWorkflowWrapper object.
 
         Args:
             workflow_data (str): The path to the workflow file or a JSON string representing the workflow.
         """
-        if workflow_data.startswith("{"):
-            # If the input is a JSON string
-            workflow_dict = json.loads(workflow_data)
+        if isinstance(workflow_data, dict):
+            workflow_dict = workflow_data
+        elif isinstance(workflow_data, str):
+            if workflow_data.startswith("{"):
+                # If the input is a JSON string
+                workflow_dict = json.loads(workflow_data)
+            else:
+                # If the input is a file path
+                with open(workflow_data) as f:
+                    workflow_str = f.read()
+                    workflow_dict = json.loads(workflow_str)
         else:
-            # If the input is a file path
-            with open(workflow_data) as f:
-                workflow_str = f.read()
-                workflow_dict = json.loads(workflow_str)
-
+            raise TypeError("Expected a dictionary")
         super().__init__(workflow_dict)
 
     def list_nodes(self) -> List[str]:
@@ -49,7 +53,7 @@ class ComfyWorkflowWrapper(dict):
             node = self[id]
             orig_value = node["inputs"][param]
             if isinstance(orig_value, (int, float)):
-                node["inputs"][param] = type(orig_value)(value)
+                node["inputs"][param] = value
             elif isinstance(orig_value, bool):
                 node["inputs"][param] = bool(value)
             elif isinstance(orig_value, list):
@@ -96,6 +100,36 @@ class ComfyWorkflowWrapper(dict):
             if node["_meta"]["title"] == title:
                 return id
         raise ValueError(f"Node '{title}' not found.")
+    
+    def prune(workflow, output_nodes, no_cache):
+        # Perform a depth-first search to find all required nodes
+        required_nodes = set()
+        visited_nodes = set()
+
+        def dfs(node_id):
+            if node_id in visited_nodes:
+                return
+            visited_nodes.add(node_id)
+
+            node = workflow[node_id]
+            if node["class_type"] == "AnythingCache" and not no_cache:
+                required_nodes.add(node_id)
+                return
+
+            for input_value in node["inputs"].values():
+                if isinstance(input_value, list) and len(input_value) == 2:
+                    input_node_id = str(input_value[0])
+                    dfs(input_node_id)
+
+            required_nodes.add(node_id)
+
+        for output_node in output_nodes:
+            dfs(output_node)
+
+        # Remove unnecessary nodes from the workflow
+        pruned_workflow = {node_id: node for node_id, node in workflow.items() if node_id in required_nodes}
+
+        return ComfyWorkflowWrapper(pruned_workflow)
 
     def save_to_file(self, path: str):
         """

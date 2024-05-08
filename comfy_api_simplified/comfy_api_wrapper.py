@@ -51,6 +51,7 @@ class ComfyApiWrapper:
             Exception: If the request fails with a non-200 status code.
         """
         p = {"prompt": prompt}
+        logging.info(f"Posting prompt for client {client_id}")
         if client_id:
             p["client_id"] = client_id
         data = json.dumps(p).encode("utf-8")
@@ -62,7 +63,7 @@ class ComfyApiWrapper:
         else:
             raise Exception(f"Request failed with status code {resp.status_code}: {resp.reason}")
 
-    async def queue_prompt_and_wait(self, prompt: dict) -> str:
+    async def queue_prompt_and_wait(self, prompt: dict, client_id = None) -> str:
         """
         Queues a prompt for execution and waits for the result.
 
@@ -75,7 +76,12 @@ class ComfyApiWrapper:
         Raises:
             Exception: If an execution error occurs.
         """
-        client_id = str(uuid.uuid4())
+        
+        if client_id is None:
+            client_id = str(uuid.uuid4())
+        
+        logging.info(f"Client ID: {client_id}")
+            
         resp = self.queue_prompt(prompt, client_id)
         
         prompt_id = resp["prompt_id"]
@@ -102,7 +108,8 @@ class ComfyApiWrapper:
                         if data["node"] is None and data["prompt_id"] == prompt_id:
                             return prompt_id
 
-    def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str]) -> dict:
+    def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
+                              client_id = None) -> dict:
         """
         Queues a prompt with a ComfyWorkflowWrapper object and waits for the images to be generated.
 
@@ -117,7 +124,7 @@ class ComfyApiWrapper:
             Exception: If the request fails with a non-200 status code.
         """
         loop = asyncio.get_event_loop() 
-        prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt))
+        prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt, client_id=client_id))
         prompt_result = self.get_history(prompt_id)[prompt_id]
         
         outputs = prompt_result["outputs"]
