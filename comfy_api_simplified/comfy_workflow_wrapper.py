@@ -112,9 +112,6 @@ class ComfyWorkflowWrapper(dict):
             visited_nodes.add(node_id)
 
             node = workflow[node_id]
-            if node["class_type"] == "AnythingCache" and not no_cache:
-                required_nodes.add(node_id)
-                return
 
             for input_value in node["inputs"].values():
                 if isinstance(input_value, list) and len(input_value) == 2:

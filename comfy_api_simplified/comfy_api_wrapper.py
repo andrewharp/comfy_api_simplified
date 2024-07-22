@@ -36,7 +36,7 @@ class ComfyApiWrapper:
             ws_url_base = f"{ws_protocol}://{url_without_protocol}"
         self.ws_url = urljoin(ws_url_base, "/ws?clientId={}")
 
-    def queue_prompt(self, prompt: dict, client_id: str = None) -> dict:
+    def queue_prompt(self, prompt: dict, client_id: str = None, extra_data = None) -> dict:
         """
         Queues a prompt for execution.
 
@@ -51,6 +51,8 @@ class ComfyApiWrapper:
             Exception: If the request fails with a non-200 status code.
         """
         p = {"prompt": prompt}
+        if extra_data:
+            p["extra_data"] = extra_data
         logging.info(f"Posting prompt for client {client_id}")
         if client_id:
             p["client_id"] = client_id
@@ -63,7 +65,7 @@ class ComfyApiWrapper:
         else:
             raise Exception(f"Request failed with status code {resp.status_code}: {resp.reason}")
 
-    async def queue_prompt_and_wait(self, prompt: dict, client_id = None) -> str:
+    async def queue_prompt_and_wait(self, prompt: dict, client_id = None, extra_data=None) -> str:
         """
         Queues a prompt for execution and waits for the result.
 
@@ -79,10 +81,10 @@ class ComfyApiWrapper:
         
         if client_id is None:
             client_id = str(uuid.uuid4())
-        
-        logging.info(f"Client ID: {client_id}")
             
-        resp = self.queue_prompt(prompt, client_id)
+        logging.info(f"Posting prompt for client {client_id} to {self.url}")
+            
+        resp = self.queue_prompt(prompt, client_id, extra_data=extra_data)
         
         prompt_id = resp["prompt_id"]
         logger.debug(f"Connecting to {self.ws_url.format(client_id).split('@')[-1]}")
@@ -98,18 +100,23 @@ class ComfyApiWrapper:
                     if message["type"] == "execution_error":
                         data = message["data"]
                         if data["prompt_id"] == prompt_id:
+                            logging.info(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
+                            logging.info(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
                             raise Exception("Execution error occurred.")
                     if message["type"] == "status":
                         data = message["data"]
                         if data["status"]["exec_info"]["queue_remaining"] == 0:
+                            logging.info("No more prompts in queue")
                             return prompt_id
                     if message["type"] == "executing":
                         data = message["data"]
-                        if data["node"] is None and data["prompt_id"] == prompt_id:
-                            return prompt_id
+                        if data["node"] is None:
+                            if "prompt_id" in data and data["prompt_id"] == prompt_id:
+                                logging.info(f"Done? {message}")
+                                return prompt_id
 
     def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
-                              client_id = None) -> dict:
+                              client_id = None, extra_data = None) -> dict:
         """
         Queues a prompt with a ComfyWorkflowWrapper object and waits for the images to be generated.
 
@@ -123,8 +130,9 @@ class ComfyApiWrapper:
         Raises:
             Exception: If the request fails with a non-200 status code.
         """
-        loop = asyncio.get_event_loop() 
-        prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt, client_id=client_id))
+        loop = asyncio.get_event_loop()
+        prompt_id = loop.run_until_complete(self.queue_prompt_and_wait(prompt, client_id=client_id, extra_data=extra_data))
+        logging.info(f"Done with prompt {prompt_id}")
         prompt_result = self.get_history(prompt_id)[prompt_id]
         
         outputs = prompt_result["outputs"]
