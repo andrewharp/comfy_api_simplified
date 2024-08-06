@@ -214,3 +214,26 @@ class ComfyApiWrapper:
             return resp.json()
         else:
             raise Exception(f"Request failed with status code {resp.status_code}: {resp.reason}")
+
+    def validate_prompt(self, prompt: dict) -> dict:
+        """
+        Validates a prompt by sending it to the /validate_prompt endpoint.
+
+        Args:
+            prompt (dict): The prompt to be validated.
+
+        Returns:
+            dict: The validation result containing 'valid', 'error_msg', and 'node_errors' keys.
+
+        Raises:
+            Exception: If the request fails with a non-200 status code.
+        """
+        url = urljoin(self.url, "/validate_prompt")
+        data = json.dumps({"prompt": prompt}).encode("utf-8")
+        logger.debug(f"Validating prompt at {url}")
+        resp = requests.post(url, data=data, auth=self.auth)
+        logger.debug(f"{resp.status_code}: {resp.reason}")
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            raise Exception(f"Request failed with status code {resp.status_code}: {resp.reason}")
