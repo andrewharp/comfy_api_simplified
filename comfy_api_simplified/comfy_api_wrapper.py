@@ -1,4 +1,5 @@
 import json
+import sys
 import requests
 import uuid
 import logging
@@ -57,9 +58,9 @@ class ComfyApiWrapper:
         if client_id:
             p["client_id"] = client_id
         data = json.dumps(p).encode("utf-8")
-        logger.debug(f"Posting prompt to {self.url}/prompt")
+        logger.info(f"Posting prompt to {self.url}/prompt")
         resp = requests.post(urljoin(self.url, "/prompt"), data=data, auth=self.auth)
-        logger.debug(f"{resp.status_code}: {resp.reason}")
+        logger.info(f"{resp.status_code}: {resp.reason}")
         if resp.status_code == 200:
             return resp.json()
         else:
@@ -86,7 +87,14 @@ class ComfyApiWrapper:
             
         resp = self.queue_prompt(prompt, client_id, extra_data=extra_data)
         
-        prompt_id = resp["prompt_id"]
+        try:
+            prompt_id = resp["prompt_id"]
+        except KeyError:
+            logging.error(f"Error posting prompt to {self.url}: {resp}")
+            sys.exit(1)
+        
+        logging.info(f"Response: {resp}")
+            
         logger.debug(f"Connecting to {self.ws_url.format(client_id).split('@')[-1]}")
         async with websockets.connect(uri=self.ws_url.format(client_id)) as websocket:
             while True:
@@ -142,6 +150,35 @@ class ComfyApiWrapper:
                 del outputs[node_id]                    
                
         return prompt_result["outputs"]
+    
+    
+    async def queue_and_wait_images_async(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
+                              client_id = None, extra_data = None) -> dict:
+        """
+        Queues a prompt with a ComfyWorkflowWrapper object and waits for the images to be generated.
+
+        Args:
+            prompt (ComfyWorkflowWrapper): The ComfyWorkflowWrapper object representing the prompt.
+            output_node_id (str): The title of the output node.
+
+        Returns:
+            dict: A dictionary mapping image filenames to their content.
+
+        Raises:
+            Exception: If the request fails with a non-200 status code.
+        """
+        prompt_id = await self.queue_prompt_and_wait(prompt, client_id=client_id, extra_data=extra_data)
+        logging.info(f"Done with prompt {prompt_id}")
+        prompt_result = self.get_history(prompt_id)[prompt_id]
+        
+        outputs = prompt_result["outputs"]
+        keys = list(outputs.keys())
+        for node_id in keys:
+            if node_id not in output_node_ids:
+                del outputs[node_id]                    
+               
+        return prompt_result["outputs"]
+    
 
     def get_history(self, prompt_id: str) -> dict:
         """

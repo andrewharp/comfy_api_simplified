@@ -60,6 +60,8 @@ class ComfyWorkflowWrapper(dict):
                 node["inputs"][param] = json.loads(value)
             else:
                 node["inputs"][param] = value
+                
+            logging.debug(f"Changed node '{id}' parameter '{param}' from '{orig_value}' to '{value}': {node}")
             smth_changed = True
         if not smth_changed:
             raise ValueError(f"Node '{id}' not found.")
