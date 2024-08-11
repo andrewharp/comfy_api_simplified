@@ -94,7 +94,10 @@ class ComfyApiWrapper:
             sys.exit(1)
         
         logging.info(f"Response: {resp}")
-            
+        return await self.wait_for_prompt(prompt_id, client_id, extra_data=extra_data)
+        
+
+    async def wait_for_prompt(self, prompt_id: str, client_id = None, extra_data=None) -> str:
         logger.debug(f"Connecting to {self.ws_url.format(client_id).split('@')[-1]}")
         async with websockets.connect(uri=self.ws_url.format(client_id)) as websocket:
             while True:
@@ -105,17 +108,20 @@ class ComfyApiWrapper:
                     if message["type"] == "crystools.monitor":
                         continue
                     logger.debug(message)
+                    
                     if message["type"] == "execution_error":
                         data = message["data"]
                         if data["prompt_id"] == prompt_id:
                             logging.info(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
                             logging.info(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
                             raise Exception("Execution error occurred.")
+                        
                     if message["type"] == "status":
                         data = message["data"]
                         if data["status"]["exec_info"]["queue_remaining"] == 0:
-                            logging.info("No more prompts in queue")
+                            logging.info(f"No more prompts in queue: {prompt_id}")
                             return prompt_id
+                        
                     if message["type"] == "executing":
                         data = message["data"]
                         if data["node"] is None:
