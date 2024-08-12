@@ -54,13 +54,13 @@ class ComfyApiWrapper:
         p = {"prompt": prompt}
         if extra_data:
             p["extra_data"] = extra_data
-        logging.info(f"Posting prompt for client {client_id}")
+        logging.debug(f"Posting prompt for client {client_id}")
         if client_id:
             p["client_id"] = client_id
         data = json.dumps(p).encode("utf-8")
-        logger.info(f"Posting prompt to {self.url}/prompt")
+        logger.debug(f"Posting prompt to {self.url}/prompt")
         resp = requests.post(urljoin(self.url, "/prompt"), data=data, auth=self.auth)
-        logger.info(f"{resp.status_code}: {resp.reason}")
+        logger.debug(f"{resp.status_code}: {resp.reason}")
         if resp.status_code == 200:
             return resp.json()
         else:
@@ -119,14 +119,14 @@ class ComfyApiWrapper:
                     if message["type"] == "status":
                         data = message["data"]
                         if data["status"]["exec_info"]["queue_remaining"] == 0:
-                            logging.info(f"No more prompts in queue: {prompt_id}")
+                            logging.debug(f"No more prompts in queue: {prompt_id}")
                             return prompt_id
                         
                     if message["type"] == "executing":
                         data = message["data"]
                         if data["node"] is None:
                             if "prompt_id" in data and data["prompt_id"] == prompt_id:
-                                logging.info(f"Done? {message}")
+                                logging.debug(f"Done? {message}")
                                 return prompt_id
 
     def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
@@ -157,34 +157,6 @@ class ComfyApiWrapper:
                
         return prompt_result["outputs"]
     
-    
-    async def queue_and_wait_images_async(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
-                              client_id = None, extra_data = None) -> dict:
-        """
-        Queues a prompt with a ComfyWorkflowWrapper object and waits for the images to be generated.
-
-        Args:
-            prompt (ComfyWorkflowWrapper): The ComfyWorkflowWrapper object representing the prompt.
-            output_node_id (str): The title of the output node.
-
-        Returns:
-            dict: A dictionary mapping image filenames to their content.
-
-        Raises:
-            Exception: If the request fails with a non-200 status code.
-        """
-        prompt_id = await self.queue_prompt_and_wait(prompt, client_id=client_id, extra_data=extra_data)
-        logging.info(f"Done with prompt {prompt_id}")
-        prompt_result = self.get_history(prompt_id)[prompt_id]
-        
-        outputs = prompt_result["outputs"]
-        keys = list(outputs.keys())
-        for node_id in keys:
-            if node_id not in output_node_ids:
-                del outputs[node_id]                    
-               
-        return prompt_result["outputs"]
-    
 
     def get_history(self, prompt_id: str) -> dict:
         """
@@ -200,11 +172,12 @@ class ComfyApiWrapper:
             Exception: If the request fails with a non-200 status code.
         """
         url = urljoin(self.url, f"/history/{prompt_id}")
-        logger.debug(f"Getting history from {url}")
         resp = requests.get(url, auth=self.auth)
+        logger.debug(f"Got history from {url} -> {resp.status_code}: {resp.reason}")
         if resp.status_code == 200:
             return resp.json()
         else:
+            logging.error(f"Error getting history from {url}: {resp}")
             raise Exception(f"Request failed with status code {resp.status_code}: {resp.reason}")
 
     def get_image(self, filename: str, subfolder: str, folder_type: str) -> bytes:
