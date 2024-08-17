@@ -151,9 +151,11 @@ class ComfyApiWrapper:
         
         outputs = prompt_result["outputs"]
         keys = list(outputs.keys())
-        for node_id in keys:
-            if node_id not in output_node_ids:
-                del outputs[node_id]                    
+        
+        if output_node_ids:
+            for node_id in keys:
+                if node_id not in output_node_ids:
+                    del outputs[node_id]                    
                
         return prompt_result["outputs"]
     
