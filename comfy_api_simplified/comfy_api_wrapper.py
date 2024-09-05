@@ -103,58 +103,91 @@ class ComfyApiWrapper:
         ws_url = self.ws_url.format(client_id)
         logger.debug(f"Connecting to {ws_url.split('@')[-1]}")
         
-        # Some nodes can tie up the system to the point of making it not being able to maintain a connection,
-        # so be pretty permissive about retries.
         max_retries = 30
         retry_delay = 5
+        executing_nodes = {}
 
-        while True:
-            try:
-                logging.info(f"Connecting to {ws_url}")
-                async with websockets.connect(uri=ws_url) as websocket:
-                    while True:
-                        out = await websocket.recv()
-                        if isinstance(out, str):
-                            message = json.loads(out)
-                            if message["type"] == "crystools.monitor":
-                                continue
-                            logger.debug(message)
-                            
-                            if message["type"] == "execution_error":
-                                data = message["data"]
-                                if data["prompt_id"] == prompt_id:
-                                    logging.info(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
-                                    logging.info(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
-                                    raise Exception("Execution error occurred.")
-                            
-                            if message["type"] == "status":
-                                data = message["data"]
-                                if data["status"]["exec_info"]["queue_remaining"] == 0:
-                                    logging.debug(f"No more prompts in queue: {prompt_id}")
-                                    return prompt_id
-                                else:
-                                    logging.debug(f"Queue remaining: {data['status']['exec_info']['queue_remaining']}")
-                            
-                            if message["type"] == "executing":
-                                data = message["data"]
-                                if data["node"] is None:
-                                    if "prompt_id" in data and data["prompt_id"] == prompt_id:
-                                        logging.debug(f"Done? {message}")
+        async def update_progress():
+            while True:
+                for node_id in list(executing_nodes.keys()):
+                    dots = executing_nodes[node_id]
+                    print(f"\rExecuting node {node_id}" + "." * dots, end="", flush=True)
+                    executing_nodes[node_id] = (dots % 3) + 1
+                await asyncio.sleep(1)
+
+        progress_task = asyncio.create_task(update_progress())
+
+        try:
+            while True:
+                try:
+                    logging.info(f"Connecting to {ws_url}")
+                    async with websockets.connect(uri=ws_url) as websocket:
+                        while True:
+                            out = await websocket.recv()
+                            if isinstance(out, str):
+                                message = json.loads(out)
+                                if message["type"] == "crystools.monitor":
+                                    continue
+                                
+                                logging.debug(f"Received message: {message['type']}")
+                                
+                                if message["type"] == "execution_cached":
+                                    logging.debug(f"Execution cached: {message['data']}")
+                                
+                                if message["type"] == "execution_error":
+                                    data = message["data"]
+                                    if data["prompt_id"] == prompt_id:
+                                        logging.info(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
+                                        logging.info(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
+                                        raise Exception("Execution error occurred.")
+                                
+                                if message["type"] == "status":
+                                    data = message["data"]
+                                    if data["status"]["exec_info"]["queue_remaining"] == 0:
+                                        logging.info(f"No more prompts in queue: {prompt_id}")
                                         return prompt_id
-                                else:
-                                    logging.info(f"Executing node {data['node']}")
+                                    else:
+                                        logging.info(f"Queue remaining: {data['status']['exec_info']['queue_remaining']}")
+                                
+                                if message["type"] == "executing":
+                                    data = message["data"]
+                                    if data["node"] is None:
+                                        if "prompt_id" in data and data["prompt_id"] == prompt_id:
+                                            logging.debug(f"Done? {message}")
+                                            return prompt_id
+                                    else:
+                                        node_id = data["node"]
+                                        executing_nodes[node_id] = 1
+                                
+                                if message["type"] == "executed":
+                                    data = message["data"]
+                                    if data["node"] is None:
+                                        if "prompt_id" in data and data["prompt_id"] == prompt_id:
+                                            logging.debug(f"Done? {message}")
+                                            return prompt_id
+                                    else:
+                                        node_id = data["node"]
+                                        if node_id in executing_nodes:
+                                            del executing_nodes[node_id]
+                                        print(f"\rExecuted node {node_id}    ", flush=True)
 
-            except Exception as e:
-                if max_retries > 0:
-                    logger.warning(f"Connection closed (reason: {e}). Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-                    max_retries -= 1
-                else:
-                    logger.error("Max retries reached. Unable to reconnect.")
-                    raise
-            except Exception as e:
-                logger.error(f"An unexpected error occurred: {str(e)}")
-                raise
+                except Exception as e:
+                    if max_retries > 0:
+                        logger.warning(f"Connection closed (reason: {e}). Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        max_retries -= 1
+                    else:
+                        logger.error("Max retries reached. Unable to reconnect.")
+                        raise
+        except Exception as e:
+            logger.error(f"An unexpected error occurred: {str(e)}")
+            raise
+        finally:
+            progress_task.cancel()
+            try:
+                await progress_task
+            except asyncio.CancelledError:
+                pass
 
     def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
                               client_id = None, extra_data = None) -> dict:
