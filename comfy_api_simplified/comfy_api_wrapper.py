@@ -106,9 +106,6 @@ class ComfyApiWrapper:
         
         max_retries = 30
         retry_delay = 5
-        executing_nodes = {}
-        node_types = {}
-        node_groups = {}
         
         def format_execution_message(prefix,node_id, node_type, node_group):
             format_str = (
@@ -116,18 +113,6 @@ class ComfyApiWrapper:
                 + f"{Fore.LIGHTGREEN_EX}({node_type}){Fore.LIGHTBLUE_EX}")
             return format_str
         
-        async def update_progress():
-            while True:
-                for node_id in list(executing_nodes.keys()):
-                    dots = executing_nodes[node_id]
-                    message = format_execution_message("Executing", node_id, node_types.get(node_id, 'unknown'), node_groups.get(node_id, 'unknown'))
-                    print(f"\r{message}" + "." * dots, end="", flush=True)
-                    executing_nodes[node_id] = (dots % 3) + 1
-                await asyncio.sleep(1)
-
-        progress_task = asyncio.create_task(update_progress())
-
-
         try:
             while True:
                 try:
@@ -171,24 +156,23 @@ class ComfyApiWrapper:
                                             return prompt_id
                                     else:
                                         node_id = data["node"]
-                                        node_types[node_id] = data.get("node_type", "unknown")
-                                        node_groups[node_id] = data.get("node_group", "")
-                                        executing_nodes[node_id] = 1
+                                        message = format_execution_message("Executing", node_id, 
+                                                                           data.get("node_type", "unknown"), 
+                                                                           data.get("node_group", ""))
+                                        print(f"{message}")
                                 
                                 if mtype == "executed":
                                     data = message["data"]
                                     if data["node"] is None:
                                         if "prompt_id" in data and data["prompt_id"] == prompt_id:
-                                            logging.debug(f"Done? {message}")
+                                            logging.error(f"Done? {message}")
                                             return prompt_id
                                     else:
                                         node_id = data["node"]
-                                        node_types[node_id] = data.get("node_type", "unknown")
-                                        node_groups[node_id] = data.get("node_group", "")
-                                        if node_id in executing_nodes:
-                                            del executing_nodes[node_id]
-                                        message = format_execution_message("Executed", node_id, node_types.get(node_id, 'unknown'), node_groups.get(node_id, 'unknown'))
-                                        print(f"\r{message}", flush=True)
+                                        message = format_execution_message("Executed", node_id, 
+                                                                           data.get("node_type", "unknown"), 
+                                                                           data.get("node_group", ""))
+                                        print(f"{message}")
 
                 except Exception as e:
                     if max_retries > 0:
@@ -201,12 +185,6 @@ class ComfyApiWrapper:
         except Exception as e:
             logger.error(f"An unexpected error occurred: {str(e)}")
             raise
-        finally:
-            progress_task.cancel()
-            try:
-                await progress_task
-            except asyncio.CancelledError:
-                pass
 
     def queue_and_wait_images(self, prompt: ComfyWorkflowWrapper, output_node_ids: list[str],
                               client_id = None, extra_data = None) -> dict:
