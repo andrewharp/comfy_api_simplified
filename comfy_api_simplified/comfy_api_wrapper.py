@@ -1,5 +1,6 @@
 import json
 import sys
+from colorama import Fore, Style
 from regex import E
 import requests
 import uuid
@@ -106,16 +107,26 @@ class ComfyApiWrapper:
         max_retries = 30
         retry_delay = 5
         executing_nodes = {}
-
+        node_types = {}
+        node_groups = {}
+        
+        def format_execution_message(prefix,node_id, node_type, node_group):
+            format_str = (
+                f"{Fore.LIGHTBLUE_EX}--- {prefix} {Fore.LIGHTMAGENTA_EX}{node_group}{Fore.RESET} node {Fore.WHITE}{Style.BRIGHT}{node_id:4s}{Fore.LIGHTBLUE_EX} "
+                + f"{Fore.LIGHTGREEN_EX}({node_type}){Fore.LIGHTBLUE_EX}")
+            return format_str
+        
         async def update_progress():
             while True:
                 for node_id in list(executing_nodes.keys()):
                     dots = executing_nodes[node_id]
-                    print(f"\rExecuting node {node_id}" + "." * dots, end="", flush=True)
+                    message = format_execution_message("Executing", node_id, node_types.get(node_id, 'unknown'), node_groups.get(node_id, 'unknown'))
+                    print(f"\r{message}" + "." * dots, end="", flush=True)
                     executing_nodes[node_id] = (dots % 3) + 1
                 await asyncio.sleep(1)
 
         progress_task = asyncio.create_task(update_progress())
+
 
         try:
             while True:
@@ -126,22 +137,25 @@ class ComfyApiWrapper:
                             out = await websocket.recv()
                             if isinstance(out, str):
                                 message = json.loads(out)
-                                if message["type"] == "crystools.monitor":
+                                mtype = message["type"]
+                                
+                                if mtype == "crystools.monitor":
                                     continue
                                 
                                 logging.debug(f"Received message: {message['type']}")
                                 
-                                if message["type"] == "execution_cached":
+                                if mtype == "execution_cached":
                                     logging.debug(f"Execution cached: {message['data']}")
                                 
-                                if message["type"] == "execution_error":
+                                if mtype == "execution_error":
                                     data = message["data"]
                                     if data["prompt_id"] == prompt_id:
-                                        logging.info(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
-                                        logging.info(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
-                                        raise Exception("Execution error occurred.")
+                                        logging.error(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
+                                        logging.error(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
+                                        traceback_str = ''.join(message['data']['traceback'])
+                                        logging.error(f"Traceback: {traceback_str}")
                                 
-                                if message["type"] == "status":
+                                if mtype == "status":
                                     data = message["data"]
                                     if data["status"]["exec_info"]["queue_remaining"] == 0:
                                         logging.info(f"No more prompts in queue: {prompt_id}")
@@ -149,7 +163,7 @@ class ComfyApiWrapper:
                                     else:
                                         logging.info(f"Queue remaining: {data['status']['exec_info']['queue_remaining']}")
                                 
-                                if message["type"] == "executing":
+                                if mtype == "executing":
                                     data = message["data"]
                                     if data["node"] is None:
                                         if "prompt_id" in data and data["prompt_id"] == prompt_id:
@@ -157,9 +171,11 @@ class ComfyApiWrapper:
                                             return prompt_id
                                     else:
                                         node_id = data["node"]
+                                        node_types[node_id] = data.get("node_type", "unknown")
+                                        node_groups[node_id] = data.get("node_group", "")
                                         executing_nodes[node_id] = 1
                                 
-                                if message["type"] == "executed":
+                                if mtype == "executed":
                                     data = message["data"]
                                     if data["node"] is None:
                                         if "prompt_id" in data and data["prompt_id"] == prompt_id:
@@ -167,9 +183,12 @@ class ComfyApiWrapper:
                                             return prompt_id
                                     else:
                                         node_id = data["node"]
+                                        node_types[node_id] = data.get("node_type", "unknown")
+                                        node_groups[node_id] = data.get("node_group", "")
                                         if node_id in executing_nodes:
                                             del executing_nodes[node_id]
-                                        print(f"\rExecuted node {node_id}    ", flush=True)
+                                        message = format_execution_message("Executed", node_id, node_types.get(node_id, 'unknown'), node_groups.get(node_id, 'unknown'))
+                                        print(f"\r{message}", flush=True)
 
                 except Exception as e:
                     if max_retries > 0:
