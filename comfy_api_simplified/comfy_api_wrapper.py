@@ -110,7 +110,7 @@ class ComfyApiWrapper:
         def format_execution_message(prefix,node_id, node_type, node_group):
             format_str = (
                 f"{Fore.LIGHTBLUE_EX} {prefix} {Fore.LIGHTMAGENTA_EX}{node_group}{Fore.RESET} node {Fore.WHITE}{Style.BRIGHT}{node_id:4s}{Fore.LIGHTBLUE_EX} "
-                + f"{Fore.LIGHTGREEN_EX}({node_type}){Fore.LIGHTBLUE_EX}")
+                + f"{Fore.LIGHTGREEN_EX}({node_type}){Fore.LIGHTBLUE_EX}...")
             return format_str
         
         try:
@@ -159,7 +159,7 @@ class ComfyApiWrapper:
                                         message = format_execution_message("Executing", node_id, 
                                                                            data.get("node_type", "unknown"), 
                                                                            data.get("node_group", ""))
-                                        print(f"{message}")
+                                        print(f"{message}", end="", flush=True)
                                 
                                 if mtype == "executed":
                                     data = message["data"]
@@ -169,10 +169,8 @@ class ComfyApiWrapper:
                                             return prompt_id
                                     else:
                                         node_id = data["node"]
-                                        message = format_execution_message("Executed", node_id, 
-                                                                           data.get("node_type", "unknown"), 
-                                                                           data.get("node_group", ""))
-                                        print(f"{message}")
+
+                                        print(f" done.")
 
                 except Exception as e:
                     if max_retries > 0:
