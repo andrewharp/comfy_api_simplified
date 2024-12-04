@@ -1,10 +1,12 @@
 import json
 import sys
+import traceback
 from colorama import Fore, Style
 from regex import E
 import requests
 import uuid
 import logging
+from torch import AnyType
 import websockets
 import asyncio
 from requests.auth import HTTPBasicAuth
@@ -137,8 +139,8 @@ class ComfyApiWrapper:
                                     if data["prompt_id"] == prompt_id:
                                         logging.error(f"{self.url}: Error computing node {message['data']['node_id']} ({message['data']['node_type']})")
                                         logging.error(f"{self.url}: {message['data']['exception_type']}: {message['data']['exception_message']}")
-                                        traceback_str = ''.join(message['data']['traceback'])
-                                        logging.error(f"Traceback: {traceback_str}")
+                                        # traceback_str = ''.join(message['data']['traceback'])
+                                        # logging.error(f"Traceback: {traceback_str}")
                                 
                                 if mtype == "status":
                                     data = message["data"]
@@ -212,7 +214,7 @@ class ComfyApiWrapper:
                 if node_id not in output_node_ids:
                     del outputs[node_id]                    
                
-        return prompt_result["outputs"]
+        return prompt_result
     
 
     def get_history(self, prompt_id: str) -> dict:
